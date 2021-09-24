@@ -13,14 +13,14 @@ Amazon S3 provides dirt cheap storage and fast retrieval, which will simplify ma
 
 The Mortar dataset will be organized into a table with the following schema:
 
-| Column Name | Description | Example |
-+-------------+-------------+---------+
+| Column Name    | Description                                                                            | Example                                |
+|----------------|----------------------------------------------------------------------------------------|----------------------------------------|
 | **Collection** | The name of the building or Brick model                                                | `bldg1`                                |
 | **UUID**       | The unique 36-byte UUID for this data stream (sensor, setpoint, etc)                   | `42c44c24-1cf1-11ec-8cd1-1002b58053c7` |
 | **Time**       | The RFC3339-encoded timestamp for a data reading; supports up to microsecond precision | `2020-01-01T12:34:56Z`                 |
 | **Value**      | The floating-point value of this reading                                               | `3.1415`                               |
 | **URI**        | The URI of this entity in the Brick model (*optional*)                                 | `urn:bldg1/sensor1`                    |
-| **Label**      | The human-readable name of this data stream (*optional*)                               | `My Test Sensor`                    |
+| **Label**      | The human-readable name of this data stream (*optional*)                               | `My Test Sensor`                       |
 
 The table will be *partitioned* into two levels: first by **collection** then by **uuid***. This means that inside the Parquet directory, each collection will be its own folder. Inside each collection will be a folder for each UUID, i.e. for each data stream. Inside each UUID folder is a set of `.parquet` files. These are partitioned by size but the partitions are ordered by time.
 
