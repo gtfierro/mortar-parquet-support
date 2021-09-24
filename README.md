@@ -66,6 +66,11 @@ It takes the following arguments:
 - `destination`: the path to the Parquet directory
 - `time_column` (optional): the name of the column containing the timestamps. Defaults to `datetime`
 
+The process of creating the `.parquet` files is pretty easy due to the great support from the PyArrow library.
+If the `transform.py` script is not meeting your needs (for example, if the data CSVs are not named using UUIDs) then it should not be too onerous to adapt the script for your own needs. As long as the resulting file structure is the same and you are doing all of the necessary transformations (sort each CSV file by timestamp, ascending; make sure column names are right) you should be ok.
+
+It is important to update the `_metadata` file after you are done pulling files into the Parquet directory. This can really be done at intermediate stages too, but as long as you run it once on the full dataset, everything will work out. This process is in the `make-metadata.py` script: `python make-metadata.py <parquet directory>`.
+
 ### Example
 
 Assuming a data file `badd2ed0-1cf4-11ec-8cd1-1002b58053c7.csv` looks like the following:
