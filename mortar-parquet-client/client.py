@@ -15,7 +15,7 @@ class Client:
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint)
         self.graph_folder = Path(graph_folder)
         self.ds = ds.parquet_dataset('data/_metadata', partitioning='hive', filesystem=self.s3)
-        self.store = rdflib.Dataset()
+        self.store = rdflib.Dataset(store="OxMemory")
         # self.store.namespace_manager = rdflib.namespace.NamespaceManager(self.store)
         self.store.default_union = True # queries default to the union of all graphs
         # self.store.open("/tmp/graph.db")
@@ -27,7 +27,7 @@ class Client:
             graph.parse(ttlfile, format="ttl")
             graph.parse("https://github.com/BrickSchema/Brick/releases/download/nightly/Brick.ttl", format="ttl")
             print(f"Done as {graph_name}")
-        
+
     def sparql(self, query, sites=None):
         if sites is None:
             res = self.store.query(query)
@@ -76,12 +76,16 @@ class Client:
 
 if __name__ == '__main__':
     c = Client("graphs", s3_endpoint="https://parquet.mortardata.org")
-    df = c.data_sparql("""SELECT ?vav ?sen ?p  WHERE {
+    df = c.data_sparql("""
+        PREFIX brick: <https://brickschema.org/schema/Brick#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        SELECT ?vav ?sen ?sp  WHERE {
         ?sen_point rdf:type/rdfs:subClassOf* brick:Temperature_Sensor ;
             brick:timeseries [ brick:hasTimeseriesId ?sen ] .
-        ?sp rdf:type/rdfs:subClassOf* brick:Temperature_Setpoint ;
+        ?sp_point rdf:type/rdfs:subClassOf* brick:Temperature_Setpoint ;
             brick:timeseries [ brick:hasTimeseriesId ?sp ] .
         ?vav a brick:VAV .
-        ?vav brick:hasPoint ?sen, ?sp .
+        ?vav brick:hasPoint ?sen_point, ?sp_point .
         }""", sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
     print(df.head())
