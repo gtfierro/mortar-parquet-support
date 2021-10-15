@@ -15,9 +15,9 @@ class Client:
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint)
         self.graph_folder = Path(graph_folder)
         self.ds = ds.parquet_dataset('data/_metadata', partitioning='hive', filesystem=self.s3)
-        self.store = rdflib.Dataset()
+        self.store = rdflib.Dataset(store='OxMemory')
         self.store.default_union = True # queries default to the union of all graphs
-        self.store.open("/tmp/graph.db")
+        #self.store.open("/tmp/graph.db")
         for ttlfile in glob.glob(str(self.graph_folder / "*.ttl")):
             graph_name = os.path.splitext(os.path.basename(ttlfile))[0]
             graph_name = f"urn:{graph_name}#"
@@ -29,7 +29,7 @@ class Client:
         
     def sparql(self, query, sites=None):
         if sites is None:
-            res = self.store.query(query)
+            res = self.store.query(query, initNs=self.store.namespaces())
             rows = list(res)
             df = pd.DataFrame.from_records(
                 rows, columns=[str(c) for c in res.vars]
@@ -39,7 +39,7 @@ class Client:
         for site in sites:
             graph_name = f"urn:{site}#"
             graph = self.store.graph(graph_name)
-            res = graph.query(query)
+            res = graph.query(query, initNs=graph.namespaces())
             rows = list(res)
             df = pd.DataFrame.from_records(
                 rows, columns=[str(c) for c in res.vars]
@@ -54,7 +54,7 @@ class Client:
             
         
     def data_sparql(self, sparql, sites=None, start=None, end=None, limit=None):
-        res = self.sparql(sparql)
+        res = self.sparql(sparql, sites=sites)
         start = pd.to_datetime("2000-01-01T00:00:00Z" if not start else start)
         end = pd.to_datetime("2100-01-01T00:00:00Z" if not end else end)
         uuids = list(set([str(item) for row in res.values for item in row]))
@@ -75,7 +75,8 @@ class Client:
 
 if __name__ == '__main__':
     c = Client("graphs", s3_endpoint="https://parquet.mortardata.org")
-    df = c.data_sparql("""SELECT ?vav ?sen ?p  WHERE {
+    df = c.data_sparql("""
+    SELECT ?vav ?sen ?p  WHERE {
         ?sen_point rdf:type/rdfs:subClassOf* brick:Temperature_Sensor ;
             brick:timeseries [ brick:hasTimeseriesId ?sen ] .
         ?sp rdf:type/rdfs:subClassOf* brick:Temperature_Setpoint ;
