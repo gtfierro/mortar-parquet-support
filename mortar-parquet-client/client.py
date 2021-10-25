@@ -11,22 +11,24 @@ import glob
 
 
 class Client:
-    def __init__(self, graph_folder, s3_endpoint=None):
-        self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint)
+    def __init__(self, graph_folder, bucket, s3_endpoint=None, region=None, reload_graphs=True):
+        self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
         self.graph_folder = Path(graph_folder)
-        self.ds = ds.parquet_dataset('data/_metadata', partitioning='hive', filesystem=self.s3)
-        self.store = rdflib.Dataset(store="OxMemory")
-        # self.store.namespace_manager = rdflib.namespace.NamespaceManager(self.store)
+        self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
+        #self.store = rdflib.Dataset(store="OxMemory")
+
+        self.store = rdflib.Dataset(store="OxSled")
         self.store.default_union = True # queries default to the union of all graphs
-        # self.store.open("/tmp/graph.db")
-        for ttlfile in glob.glob(str(self.graph_folder / "*.ttl")):
-            graph_name = os.path.splitext(os.path.basename(ttlfile))[0]
-            graph_name = f"urn:{graph_name}#"
-            graph = self.store.graph(graph_name)
-            print(f"Loading {ttlfile} => ", end='', flush=True)
-            graph.parse(ttlfile, format="ttl")
-            graph.parse("https://github.com/BrickSchema/Brick/releases/download/nightly/Brick.ttl", format="ttl")
-            print(f"Done as {graph_name}")
+        self.store.open("/tmp/graph.db")
+        if reload_graphs:
+            for ttlfile in glob.glob(str(self.graph_folder / "*.ttl")):
+                graph_name = os.path.splitext(os.path.basename(ttlfile))[0]
+                graph_name = f"urn:{graph_name}#"
+                graph = self.store.graph(graph_name)
+                print(f"Loading {ttlfile} => ", end='', flush=True)
+                graph.parse(ttlfile, format="ttl")
+                graph.parse("https://github.com/BrickSchema/Brick/releases/download/nightly/Brick.ttl", format="ttl")
+                print(f"Done as {graph_name}")
 
     def sparql(self, query, sites=None):
         if sites is None:
@@ -64,10 +66,11 @@ class Client:
         for batch in self.ds.to_batches(filter=f):
             df = batch.to_pandas()
             print(f"Downloaded batch of {len(df)} records")
-            limit -= len(df)
             dfs.append(df)
-            if limit <= 0:
-                break
+            if limit:
+                limit -= len(df)
+                if limit <= 0:
+                    break
         if len(dfs) == 0:
             return pd.DataFrame()
         if len(dfs) == 1:
@@ -75,8 +78,9 @@ class Client:
         return functools.reduce(lambda x, y: pd.concat([x, y], axis=0), dfs)
 
 if __name__ == '__main__':
-    c = Client("graphs", s3_endpoint="https://parquet.mortardata.org")
-    df = c.data_sparql("""
+    #c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
+    c = Client("graphs", "mortar-athena-test/data", region="us-east-2", reload_graphs=False)
+    query1 = """
         PREFIX brick: <https://brickschema.org/schema/Brick#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -87,5 +91,17 @@ if __name__ == '__main__':
             brick:timeseries [ brick:hasTimeseriesId ?sp ] .
         ?vav a brick:VAV .
         ?vav brick:hasPoint ?sen_point, ?sp_point .
-        }""", sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
+    }"""
+    df = c.sparql(query1, sites=["bldg1", "bldg2"])
     print(df.head())
+
+
+    df = c.data_sparql(query1, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
+    print(df.head())
+
+"""
+Notes:
+- if you download of data, it all goes in memory:
+    - can we store data locally?
+    - insert into local parquet file? or duckdb?
+"""
