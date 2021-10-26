@@ -34,9 +34,15 @@ query1 = """
 
 # get a DataFrame of the SPARQL query results
 df = c.sparql(query1, sites=["bldg1", "bldg2"])
+# can save to CSV too
+df.to_csv("query1_sparql.csv")
 print(df.head())
 
-# get a DataFrame of the timeseries data. WARNING THIS CAN BE VERY LARGE
+# get an in-memory DataFrame of SPARQL query results; this can get large so watch your memory usage
 df = c.data_sparql(query1, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
 print(df.head())
+
+# stream large datasets directly to CSV files on disk
+res = c.data_sparql_to_csv(query1, "query1.csv", sites=["bldg1"])
+print(res)
 ```

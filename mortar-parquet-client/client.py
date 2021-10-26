@@ -5,18 +5,27 @@ import pyarrow as pa
 from pathlib import Path
 import pyarrow.dataset as ds
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 from pyarrow import fs
 import rdflib
 import glob
-
+import duckdb
 
 class Client:
     def __init__(self, db_dir, bucket, s3_endpoint=None, region=None):
+
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
         self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
         self.store = rdflib.Dataset(store="OxSled")
         self.store.default_union = True # queries default to the union of all graphs
         self.store.open(db_dir)
+
+    def _table_exists(self, table):
+        try:
+            res = self.data_cache.table(table)
+            return res is not None
+        except RuntimeError:
+            return False
 
     def sparql(self, query, sites=None):
         if sites is None:
@@ -42,16 +51,39 @@ class Client:
         if len(dfs) == 1:
             return dfs[0]
         return functools.reduce(lambda x, y: pd.concat([x, y], axis=0), dfs)
-            
-        
-    def data_sparql(self, sparql, sites=None, start=None, end=None, limit=None):
+
+    def _to_batches(self, sparql, sites=None, start=None, end=None, limit=None):
         res = self.sparql(sparql, sites=sites)
         start = pd.to_datetime("2000-01-01T00:00:00Z" if not start else start)
         end = pd.to_datetime("2100-01-01T00:00:00Z" if not end else end)
         uuids = list(set([str(item) for row in res.values for item in row]))
         f = (ds.field('uuid').isin(uuids)) & (ds.field("time") <= pa.scalar(end)) & (ds.field("time") >= pa.scalar(start))
-        dfs = []
         for batch in self.ds.to_batches(filter=f):
+            yield batch
+
+    def data_sparql_to_csv(self, sparql, filename, sites=None, start=None, end=None, limit=None):
+        num = 0
+        for batch in self._to_batches(sparql, sites=sites, start=start, end=end, limit=limit):
+            df = batch.to_pandas()
+            num += len(df)
+            df.to_csv(filename, mode='a', header=False)
+        return num
+
+    def data_sparql_to_duckdb(self, sparql, database, table, sites=None, start=None, end=None, limit=None):
+        self.data_cache = duckdb.connect(database)
+        for batch in self._to_batches(sparql, sites=sites, start=start, end=end, limit=limit):
+            pq.write_table(pa.Table.from_batches([batch]), "tmp.parquet")
+            if not self._table_exists(table):
+                self.data_cache.execute(f"CREATE TABLE {table} AS SELECT * from parquet_scan('tmp.parquet')")
+            else:
+                self.data_cache.execute(f"INSERT INTO {table} SELECT * from parquet_scan('tmp.parquet')")
+            os.remove("tmp.parquet")
+        self.data_cache.commit()
+        return self.data_cache.table(table)
+
+    def data_sparql(self, sparql, sites=None, start=None, end=None, limit=None, in_memory=True):
+        dfs = []
+        for batch in self._to_batches(sparql, sites=sites, start=start, end=end, limit=limit):
             df = batch.to_pandas()
             print(f"Downloaded batch of {len(df)} records")
             dfs.append(df)
@@ -66,6 +98,7 @@ class Client:
         return functools.reduce(lambda x, y: pd.concat([x, y], axis=0), dfs)
 
 if __name__ == '__main__':
+    # currently offline.. hopefully back up soon
     #c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
     c = Client("graph.db", "mortar-data/data", region="us-east-2")
     query1 = """
@@ -81,11 +114,14 @@ if __name__ == '__main__':
         ?vav brick:hasPoint ?sen_point, ?sp_point .
     }"""
     df = c.sparql(query1, sites=["bldg1", "bldg2"])
+    df.to_csv("query1_sparql.csv")
     print(df.head())
-
 
     df = c.data_sparql(query1, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
     print(df.head())
+
+    res = c.data_sparql_to_csv(query1, "query1.csv", sites=["bldg1"])
+    print(res)
 
 """
 Notes:
