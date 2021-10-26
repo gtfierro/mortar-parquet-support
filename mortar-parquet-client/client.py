@@ -9,16 +9,25 @@ import pyarrow.parquet as pq
 from pyarrow import fs
 import rdflib
 import glob
-import duckdb
 
 class Client:
     def __init__(self, db_dir, bucket, s3_endpoint=None, region=None):
+        # monkey-patch RDFlib to deal with some issues w.r.t. oxrdflib
+        def namespaces(self):
+            if not self.store.namespaces():
+                return []
+            for prefix, namespace in self.store.namespaces():
+                namespace = URIRef(namespace)
+                yield prefix, namespace
+        rdflib.namespace.NamespaceManager.namespaces = namespaces
+
 
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
         self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
         self.store = rdflib.Dataset(store="OxSled")
         self.store.default_union = True # queries default to the union of all graphs
         self.store.open(db_dir)
+
 
     def _table_exists(self, table):
         try:
@@ -70,6 +79,7 @@ class Client:
         return num
 
     def data_sparql_to_duckdb(self, sparql, database, table, sites=None, start=None, end=None, limit=None):
+        import duckdb
         self.data_cache = duckdb.connect(database)
         for batch in self._to_batches(sparql, sites=sites, start=start, end=end, limit=limit):
             pq.write_table(pa.Table.from_batches([batch]), "tmp.parquet")
