@@ -11,24 +11,12 @@ import glob
 
 
 class Client:
-    def __init__(self, graph_folder, bucket, s3_endpoint=None, region=None, reload_graphs=True):
+    def __init__(self, db_dir, bucket, s3_endpoint=None, region=None):
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
-        self.graph_folder = Path(graph_folder)
         self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
-        #self.store = rdflib.Dataset(store="OxMemory")
-
         self.store = rdflib.Dataset(store="OxSled")
         self.store.default_union = True # queries default to the union of all graphs
-        self.store.open("/tmp/graph.db")
-        if reload_graphs:
-            for ttlfile in glob.glob(str(self.graph_folder / "*.ttl")):
-                graph_name = os.path.splitext(os.path.basename(ttlfile))[0]
-                graph_name = f"urn:{graph_name}#"
-                graph = self.store.graph(graph_name)
-                print(f"Loading {ttlfile} => ", end='', flush=True)
-                graph.parse(ttlfile, format="ttl")
-                graph.parse("https://github.com/BrickSchema/Brick/releases/download/nightly/Brick.ttl", format="ttl")
-                print(f"Done as {graph_name}")
+        self.store.open(db_dir)
 
     def sparql(self, query, sites=None):
         if sites is None:
@@ -79,7 +67,7 @@ class Client:
 
 if __name__ == '__main__':
     #c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
-    c = Client("graphs", "mortar-athena-test/data", region="us-east-2", reload_graphs=False)
+    c = Client("graph.db", "mortar-data/data", region="us-east-2")
     query1 = """
         PREFIX brick: <https://brickschema.org/schema/Brick#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
