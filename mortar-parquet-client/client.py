@@ -10,6 +10,7 @@ from pyarrow import fs
 import rdflib
 import glob
 
+# TODO: provide method for id -> data
 class Client:
     def __init__(self, db_dir, bucket, s3_endpoint=None, region=None):
         # monkey-patch RDFlib to deal with some issues w.r.t. oxrdflib
@@ -39,7 +40,7 @@ class Client:
     def sparql(self, query, sites=None):
         if sites is None:
             res = self.store.query(query)
-            rows = list(res)
+            rows = list(map(str, row) for row in res)
             df = pd.DataFrame.from_records(
                 rows, columns=[str(c) for c in res.vars]
             )
@@ -49,7 +50,7 @@ class Client:
             graph_name = f"urn:{site}#"
             graph = self.store.graph(graph_name)
             res = graph.query(query)
-            rows = list(res)
+            rows = list(map(str, row) for row in res)
             df = pd.DataFrame.from_records(
                 rows, columns=[str(c) for c in res.vars]
             )
@@ -110,7 +111,21 @@ class Client:
 if __name__ == '__main__':
     # currently offline.. hopefully back up soon
     #c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
-    c = Client("graph.db", "mortar-data/data", region="us-east-2")
+    c = Client("models.db", "mortar-data/data", region="us-east-2")
+
+    all_points = """
+        PREFIX brick: <https://brickschema.org/schema/Brick#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        SELECT * WHERE {
+            ?point rdf:type/rdfs:subClassOf* brick:Point .
+            ?point rdf:type ?type .
+            ?point brick:timeseries [ brick:hasTimeseriesId ?id ] .
+        }
+    """
+    df = c.sparql(all_points, sites=["bldg1", "bldg2"])
+    df.to_csv("all_points.csv")
+
     query1 = """
         PREFIX brick: <https://brickschema.org/schema/Brick#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
